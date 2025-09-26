@@ -3,3 +3,10 @@ Updated content for the test document.
 python -m uvicorn app.main:app --reload
 
 npm run dev
+
+
+netstat -ano | findstr :8000
+Stop-Process -Id <PID> -Force
+cd C:\Users\PC2502\OneDrive\QuantProject\QuantProto\backend
+C:\Users\PC2502\Anaconda3\envs\quantagents\python.exe -m uvicorn app.main:app --reload
+curl "http://127.0.0.1:8000/api/market/stock/price/005930"

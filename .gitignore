@@ -58,3 +58,9 @@ secrets/
 *.db
 /data/
 /tmp/
+
+# KIS Developers
+kis_devlp.yaml
+backend/kis_devlp.yaml
+tokens/
+tokens/token_vps.json

@@ -10,6 +10,10 @@ from app.config import settings
 from app.db.session import get_db
 from app.models.symbol import Symbol
 from app.schemas import SymbolCreate, SymbolRead
+# 상대 경로로 임포트
+from .api import market, ws
+from .services.kis_auth import kis_auth
+from .services.market_data_service import market_data_service
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -23,17 +27,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 라우터 등록
+app.include_router(market.router)
+app.include_router(ws.router)
+
 
 @app.on_event("startup")
 async def start_heartbeat():
+    # 하트비트 태스크 시작
     app.state.heartbeat_task = asyncio.create_task(heartbeat())
+    
+    # 한국투자증권 API 인증
+    try:
+        auth_result = kis_auth.auth()
+        if auth_result:
+            logger.info("한국투자증권 API 인증 성공")
+        else:
+            logger.warning("한국투자증권 API 인증 실패")
+    except Exception as e:
+        logger.error(f"한국투자증권 API 인증 오류: {e}")
 
 
 @app.on_event("shutdown")
 async def stop_heartbeat():
+    # 하트비트 태스크 종료
     task = getattr(app.state, "heartbeat_task", None)
     if task:
         task.cancel()
+    
+    # WebSocket 연결 종료
+    try:
+        await market_data_service.close_all_connections()
+        logger.info("모든 WebSocket 연결 종료")
+    except Exception as e:
+        logger.error(f"WebSocket 연결 종료 오류: {e}")
 
 
 def log_db_ready(db: Session) -> None:
