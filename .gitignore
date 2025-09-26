@@ -64,3 +64,8 @@ kis_devlp.yaml
 backend/kis_devlp.yaml
 tokens/
 tokens/token_vps.json
+
+# references
+references/
+docs/
+references/nautilus_trader
