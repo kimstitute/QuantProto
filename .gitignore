@@ -69,3 +69,7 @@ tokens/token_vps.json
 references/
 docs/
 references/nautilus_trader
+
+# Temporary helper scripts
+__temp_*.py
+
