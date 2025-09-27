@@ -16,7 +16,7 @@ class KISAuth:
     """
     한국투자증권 Open API 인증 클래스
     
-    이 클래스는 한국투자증권 Open API에 대한 인증을 처리하고 토큰을 관리합니다.
+    이 클래스는 한국투자증권 Open API를 위한 인증을 처리하고 토큰을 관리합니다.
     """
     
     def __init__(self):
@@ -128,7 +128,7 @@ class KISAuth:
         
         Args:
             svr (str, optional): 서버 환경 ("prod": 실전투자, "vps": 모의투자). 기본값은 "vps".
-            product (str, optional): 상품 코드 ("01": 종합계좌, "03": 국내선물옵션, "08": 해외선물옵션, "22": 연금저축, "29": 퇴직연금). 기본값은 "01".
+            product (str, optional): 상품 코드 ("01": 종합계좌, "03": 선물옵션, "08": 해외선물옵션, "22": 현금잔고, "29": 주식잔고). 기본값은 "01".
         
         Returns:
             bool: 인증 성공 여부
@@ -136,12 +136,12 @@ class KISAuth:
         self.env = svr
         self.product = product
         
-        # 저장된 토큰이 있으면 로드
+        # 저장된 토큰을 먼저 로드
         if self._load_token():
             logger.info("저장된 토큰을 로드했습니다.")
             return True
         
-        # 앱키, 앱시크릿 설정
+        # 앱키, 시크릿 설정
         if svr == "prod":
             app_key = self.config.get("my_app", "")
             app_secret = self.config.get("my_sec", "")
@@ -150,7 +150,7 @@ class KISAuth:
             app_secret = self.config.get("paper_sec", "")
         
         if not app_key or not app_secret:
-            logger.error("앱키 또는 앱시크릿이 설정되지 않았습니다.")
+            logger.error("앱키 또는 시크릿이 설정되지 않았습니다.")
             return False
         
         # 토큰 발급 요청
@@ -204,7 +204,7 @@ class KISAuth:
         Args:
             is_content_type (bool, optional): Content-Type 헤더 포함 여부. 기본값은 True.
             is_hash (bool, optional): 해시 헤더 포함 여부. 기본값은 False.
-            hash_data (str, optional): 해시 생성에 사용할 데이터. 기본값은 "".
+            hash_data (str, optional): 해시 생성용 데이터. 기본값은 "".
         
         Returns:
             Dict[str, str]: 헤더 정보
@@ -234,16 +234,50 @@ class KISAuth:
             headers["timestamp"] = timestamp
         
         return headers
+
+    def create_hashkey(self, payload: Dict[str, Any]) -> Optional[str]:
+        """
+        Request a hashkey for POST payloads.
+        
+        Args:
+            payload (Dict[str, Any]): Request body to hash.
+        
+        Returns:
+            Optional[str]: Hash string from KIS, None on failure.
+        """
+        if not self.access_token:
+            logger.error("Access token missing; call auth() before requesting hashkey.")
+            return None
+        base_url = self.base_url.get(self.env)
+        if not base_url:
+            logger.error("Unknown environment for hashkey request: %s", self.env)
+            return None
+        url = f"{base_url}/uapi/hashkey"
+        headers = self.get_headers()
+        headers.pop("tr_id", None)
+        headers.pop("hashkey", None)
+        try:
+            response = requests.post(url, headers=headers, data=json.dumps(payload))
+            response.raise_for_status()
+            data = response.json()
+            hash_value = data.get("HASH") or data.get("hash")
+            if not hash_value:
+                logger.error("Hashkey response missing HASH field: %s", data)
+            return hash_value
+        except Exception as exc:
+            logger.error("Hashkey request failed: %s", exc)
+            return None
+
     
     def _generate_hash(self, data: str) -> str:
         """
-        해시키를 생성합니다.
+        해시값을 생성합니다.
         
         Args:
-            data (str): 해시 생성에 사용할 데이터
+            data (str): 해시 생성용 데이터
         
         Returns:
-            str: 생성된 해시키
+            str: 생성된 해시값
         """
         if self.env == "prod":
             app_secret = self.config.get("my_sec", "")

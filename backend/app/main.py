@@ -10,10 +10,12 @@ from app.config import settings
 from app.db.session import get_db
 from app.models.symbol import Symbol
 from app.schemas import SymbolCreate, SymbolRead
-# 상대 경로로 임포트
-from .api import market, ws
+# 라우터 경로 가져오기
+from .api import market, orders, ws
+from .api import portfolio, trading, llm_trading
 from .services.kis_auth import kis_auth
 from .services.market_data_service import market_data_service
+from .services.trading_engine import trading_engine
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -21,7 +23,10 @@ app = FastAPI(title=settings.app_name)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:4173"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -30,12 +35,20 @@ app.add_middleware(
 # 라우터 등록
 app.include_router(market.router)
 app.include_router(ws.router)
+app.include_router(orders.router)
+app.include_router(portfolio.router)
+app.include_router(trading.router)
+app.include_router(llm_trading.router)
 
 
 @app.on_event("startup")
 async def start_heartbeat():
     # 하트비트 태스크 시작
     app.state.heartbeat_task = asyncio.create_task(heartbeat())
+    
+    # 트레이딩 엔진 시작 (스톱로스 모니터링)
+    app.state.trading_engine_task = asyncio.create_task(trading_engine.start_monitoring())
+    logger.info("트레이딩 엔진 모니터링 시작")
     
     # 한국투자증권 API 인증
     try:
@@ -50,6 +63,17 @@ async def start_heartbeat():
 
 @app.on_event("shutdown")
 async def stop_heartbeat():
+    # 트레이딩 엔진 종료
+    trading_engine.stop_monitoring()
+    trading_task = getattr(app.state, "trading_engine_task", None)
+    if trading_task:
+        trading_task.cancel()
+        try:
+            await trading_task
+        except asyncio.CancelledError:
+            pass
+    logger.info("트레이딩 엔진 종료 완료")
+    
     # 하트비트 태스크 종료
     task = getattr(app.state, "heartbeat_task", None)
     if task:

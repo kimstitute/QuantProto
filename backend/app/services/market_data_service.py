@@ -1,4 +1,4 @@
-﻿import json
+import json
 import logging
 import asyncio
 import websockets
@@ -12,38 +12,38 @@ logger = logging.getLogger("uvicorn.error")
 
 class MarketDataService:
     """
-    ?ㅼ떆媛?湲덉쑖 ?곗씠???쒕퉬??
+    Market data service helper.
     
-    ?쒓뎅?ъ옄利앷텒 Open API瑜??듯빐 ?ㅼ떆媛??쒖꽭 ?곗씠?곕? 媛?몄삤???쒕퉬?ㅼ엯?덈떎.
+    Provides integrations with the KIS OpenAPI for realtime and historical data.
     """
     
     def __init__(self):
         """
-        MarketDataService ?대옒??珥덇린??
+        Initialize MarketDataService resources.
         """
-        self.ws_connections = {}  # ?뱀냼耳??곌껐 ???
-        self.subscribers = {}  # 援щ룆?????
-        self.symbol_subscribers = {}  # 醫낅ぉ蹂?援щ룆?????
+        self.ws_connections = {}  # Active websocket connections
+        self.subscribers = {}  # Registered general subscribers
+        self.symbol_subscribers = {}  # Subscribers per symbol
     
     async def connect_websocket(self, tr_id: str) -> None:
         """
-        WebSocket ?곌껐???앹꽦?⑸땲??
+        Establish websocket connection if required.
         
         Args:
-            tr_id (str): 嫄곕옒 ID
+            tr_id (str): Transaction identifier
         """
         if tr_id in self.ws_connections and self.ws_connections[tr_id] is not None:
             return
         
-        # ?몄쬆 ?뺣낫 媛?몄삤湲?
+        # Acquire authentication tokens
         app_key, access_token = kis_auth.auth_ws()
         ws_url = kis_auth.get_ws_url()
         
         try:
-            # WebSocket ?곌껐
+            # Create websocket connection
             websocket = await websockets.connect(ws_url)
             
-            # ?ㅻ뜑 ?꾩넚
+            # Validate response
             header_data = {
                 "header": {
                     "appkey": app_key,
@@ -60,29 +60,29 @@ class MarketDataService:
             
             await websocket.send(json.dumps(header_data))
             
-            # ?묐떟 ?뺤씤
+            # Validate response
             response = await websocket.recv()
             response_data = json.loads(response)
             
             if response_data.get("header", {}).get("result_code") == "0":
-                logger.info(f"WebSocket ?곌껐 ?깃났: {tr_id}")
+                logger.info(f"WebSocket connected: {tr_id}")
                 self.ws_connections[tr_id] = websocket
                 
-                # 硫붿떆吏 ?섏떊 猷⑦봽 ?쒖옉
+                # Start background message loop
                 asyncio.create_task(self._receive_messages(tr_id, websocket))
             else:
-                logger.error(f"WebSocket ?곌껐 ?ㅽ뙣: {response_data}")
+                logger.error(f"WebSocket connection failed: {response_data}")
                 await websocket.close()
         except Exception as e:
-            logger.error(f"WebSocket ?곌껐 ?ㅻ쪟: {e}")
+            logger.error(f"WebSocket receive error: {e}")
     
     async def _receive_messages(self, tr_id: str, websocket) -> None:
         """
-        WebSocket?쇰줈遺??硫붿떆吏瑜??섏떊?섎뒗 猷⑦봽?낅땲??
+        Receive messages from the websocket feed.
         
         Args:
-            tr_id (str): 嫄곕옒 ID
-            websocket: WebSocket ?곌껐 媛앹껜
+            tr_id (str): Transaction identifier
+            websocket: WebSocket connection instance
         """
         try:
             while True:
@@ -91,89 +91,89 @@ class MarketDataService:
                 try:
                     data = json.loads(message)
                     
-                    # 硫붿떆吏 泥섎━
+                    #  
                     await self._process_message(tr_id, data)
                 except json.JSONDecodeError:
-                    logger.warning(f"JSON ?붿퐫???ㅽ뙣: {message}")
+                    logger.warning(f"JSON decode failed: {message}")
                 except Exception as e:
-                    logger.error(f"硫붿떆吏 泥섎━ ?ㅻ쪟: {e}")
+                    logger.error(f"Message handling error: {e}")
         except websockets.exceptions.ConnectionClosed:
-            logger.info(f"WebSocket ?곌껐 醫낅즺: {tr_id}")
+            logger.info(f"WebSocket connection closed: {tr_id}")
         except Exception as e:
-            logger.error(f"WebSocket ?섏떊 ?ㅻ쪟: {e}")
+            logger.error(f"WebSocket receive error: {e}")
         finally:
-            # ?곌껐 ?뺣━
+            # Validate response
             self.ws_connections[tr_id] = None
     
     async def _process_message(self, tr_id: str, data: Dict[str, Any]) -> None:
         """
-        ?섏떊??硫붿떆吏瑜?泥섎━?⑸땲??
+        Handle incoming websocket message.
         
         Args:
-            tr_id (str): 嫄곕옒 ID
-            data (Dict[str, Any]): ?섏떊???곗씠??
+            tr_id (str): Transaction identifier
+            data (Dict[str, Any]): Message payload
         """
-        # ?ㅻ뜑 ?뺤씤
+        # Build query parameters
         header = data.get("header", {})
         if header.get("result_code") != "0":
-            logger.warning(f"?ㅻ쪟 硫붿떆吏 ?섏떊: {data}")
+            logger.warning(f"Error message received: {data}")
             return
         
-        # 諛붾뵒 ?뺤씤
+        # Issue subscription request
         body = data.get("body", {})
         if not body:
-            logger.warning(f"鍮?諛붾뵒 ?섏떊: {data}")
+            logger.warning(f"Empty body received: {data}")
             return
         
-        # 醫낅ぉ 肄붾뱶 ?뺤씤
+        # Ensure symbol exists
         symbol = body.get("symbol", "")
         if not symbol:
-            logger.warning(f"醫낅ぉ 肄붾뱶 ?놁쓬: {data}")
+            logger.warning(f"Missing symbol in payload: {data}")
             return
         
-        # 援щ룆?먯뿉寃??곗씠???꾨떖
+        # Dispatch to subscribers
         if symbol in self.symbol_subscribers:
             for callback in self.symbol_subscribers[symbol]:
                 try:
                     await callback(data)
                 except Exception as e:
-                    logger.error(f"肄쒕갚 ?ㅽ뻾 ?ㅻ쪟: {e}")
+                    logger.error(f"Subscriber callback error: {e}")
     
     async def subscribe_stock_price(self, symbol: str, callback: Callable[[Dict[str, Any]], Awaitable[None]]) -> bool:
         """
-        二쇱떇 ?ㅼ떆媛??쒖꽭瑜?援щ룆?⑸땲??
+        Subscribe to realtime order book feed.
         
         Args:
-            symbol (str): 醫낅ぉ 肄붾뱶
-            callback (Callable): ?곗씠???섏떊 ???몄텧??肄쒕갚 ?⑥닔
+            symbol (str): Instrument code
+            callback (Callable): Async callback for updates
         
         Returns:
-            bool: 援щ룆 ?깃났 ?щ?
+            bool: True if subscription succeeded
         """
-        # ?몄쬆 ?뺤씤
+        # Build query parameters
         if not kis_auth.access_token:
             if not kis_auth.auth():
-                logger.error("?몄쬆 ?ㅽ뙣")
+                logger.error("Authentication failed")
                 return False
         
-        # 嫄곕옒 ID ?ㅼ젙
-        tr_id = "H0STCNT0"  # 援?궡二쇱떇 ?ㅼ떆媛꾩껜寃곌? (KRX)
+        # Determine transaction identifier
+        tr_id = "H0STCNT0"  # Domestic stock realtime trade feed (KRX)
         
-        # WebSocket ?곌껐
+        # Ensure websocket connection
         if tr_id not in self.ws_connections or self.ws_connections[tr_id] is None:
             await self.connect_websocket(tr_id)
         
-        # 援щ룆 ?붿껌
+        # Issue subscription request
         websocket = self.ws_connections.get(tr_id)
         if not websocket:
-            logger.error(f"WebSocket ?곌껐 ?놁쓬: {tr_id}")
+            logger.error(f"WebSocket connection missing: {tr_id}")
             return False
         
         try:
-            # 援щ룆 ?붿껌 ?곗씠??
+            # Build subscription payload
             subscribe_data = {
                 "header": {
-                    "tr_type": "1",  # 1: 援щ룆, 0: ?댁?
+                    "tr_type": "1",  # 1: subscribe, 0: unsubscribe
                     "tr_id": tr_id,
                     "tr_key": symbol
                 }
@@ -181,43 +181,43 @@ class MarketDataService:
             
             await websocket.send(json.dumps(subscribe_data))
             
-            # 援щ룆???깅줉
+            # Register subscriber
             if symbol not in self.symbol_subscribers:
                 self.symbol_subscribers[symbol] = []
             
             self.symbol_subscribers[symbol].append(callback)
             
-            logger.info(f"?ㅼ떆媛??쒖꽭 援щ룆 ?깃났: {symbol}")
+            logger.info(f"Subscribed to realtime price: {symbol}")
             return True
         except Exception as e:
-            logger.error(f"?ㅼ떆媛??쒖꽭 援щ룆 ?ㅻ쪟: {e}")
+            logger.error(f"Failed to subscribe price feed: {e}")
             return False
     
     async def unsubscribe_stock_price(self, symbol: str, callback: Optional[Callable] = None) -> bool:
         """
-        二쇱떇 ?ㅼ떆媛??쒖꽭 援щ룆???댁??⑸땲??
+        Unsubscribe from realtime price feed.
         
         Args:
-            symbol (str): 醫낅ぉ 肄붾뱶
-            callback (Optional[Callable]): ?댁????뱀젙 肄쒕갚 ?⑥닔 (None?대㈃ 紐⑤뱺 肄쒕갚 ?댁?)
+            symbol (str): Instrument code
+            callback (Optional[Callable]): Specific callback to remove (None removes all)
         
         Returns:
-            bool: ?댁? ?깃났 ?щ?
+            bool: True if unsubscribe succeeded
         """
-        # 嫄곕옒 ID ?ㅼ젙
-        tr_id = "H0STCNT0"  # 援?궡二쇱떇 ?ㅼ떆媛꾩껜寃곌? (KRX)
+        # Determine transaction identifier
+        tr_id = "H0STCNT0"  # Domestic stock realtime trade feed (KRX)
         
-        # WebSocket ?곌껐 ?뺤씤
+        # Confirm websocket connection
         websocket = self.ws_connections.get(tr_id)
         if not websocket:
-            logger.error(f"WebSocket ?곌껐 ?놁쓬: {tr_id}")
+            logger.error(f"WebSocket connection missing: {tr_id}")
             return False
         
         try:
-            # 援щ룆 ?댁? ?붿껌 ?곗씠??
+            # Build unsubscribe payload
             unsubscribe_data = {
                 "header": {
-                    "tr_type": "0",  # 1: 援щ룆, 0: ?댁?
+                    "tr_type": "0",  # 1: subscribe, 0: unsubscribe
                     "tr_id": tr_id,
                     "tr_key": symbol
                 }
@@ -225,58 +225,58 @@ class MarketDataService:
             
             await websocket.send(json.dumps(unsubscribe_data))
             
-            # 援щ룆???쒓굅
+            # Update subscriber list
             if symbol in self.symbol_subscribers:
                 if callback is None:
-                    # 紐⑤뱺 肄쒕갚 ?쒓굅
+                    # Clear all callbacks
                     self.symbol_subscribers[symbol] = []
                 else:
-                    # ?뱀젙 肄쒕갚留??쒓굅
+                    # Remove matching callback
                     self.symbol_subscribers[symbol] = [
                         cb for cb in self.symbol_subscribers[symbol] if cb != callback
                     ]
             
-            logger.info(f"?ㅼ떆媛??쒖꽭 援щ룆 ?댁? ?깃났: {symbol}")
+            logger.info(f"Unsubscribed from price feed: {symbol}")
             return True
         except Exception as e:
-            logger.error(f"?ㅼ떆媛??쒖꽭 援щ룆 ?댁? ?ㅻ쪟: {e}")
+            logger.error(f"Failed to unsubscribe price feed: {e}")
             return False
     
     async def subscribe_asking_price(self, symbol: str, callback: Callable[[Dict[str, Any]], Awaitable[None]]) -> bool:
         """
-        二쇱떇 ?ㅼ떆媛??멸?瑜?援щ룆?⑸땲??
+        Subscribe to realtime order book feed.
         
         Args:
-            symbol (str): 醫낅ぉ 肄붾뱶
-            callback (Callable): ?곗씠???섏떊 ???몄텧??肄쒕갚 ?⑥닔
+            symbol (str): Instrument code
+            callback (Callable): Async callback for updates
         
         Returns:
-            bool: 援щ룆 ?깃났 ?щ?
+            bool: True if subscription succeeded
         """
-        # ?몄쬆 ?뺤씤
+        # Build query parameters
         if not kis_auth.access_token:
             if not kis_auth.auth():
-                logger.error("?몄쬆 ?ㅽ뙣")
+                logger.error("Authentication failed")
                 return False
         
-        # 嫄곕옒 ID ?ㅼ젙
-        tr_id = "H0STASP0"  # 援?궡二쇱떇 ?ㅼ떆媛꾪샇媛 (KRX)
+        # Determine transaction identifier
+        tr_id = "H0STASP0"  # Domestic stock realtime order book (KRX)
         
-        # WebSocket ?곌껐
+        # Ensure websocket connection
         if tr_id not in self.ws_connections or self.ws_connections[tr_id] is None:
             await self.connect_websocket(tr_id)
         
-        # 援щ룆 ?붿껌
+        # Issue subscription request
         websocket = self.ws_connections.get(tr_id)
         if not websocket:
-            logger.error(f"WebSocket ?곌껐 ?놁쓬: {tr_id}")
+            logger.error(f"WebSocket connection missing: {tr_id}")
             return False
         
         try:
-            # 援щ룆 ?붿껌 ?곗씠??
+            # Build subscription payload
             subscribe_data = {
                 "header": {
-                    "tr_type": "1",  # 1: 援щ룆, 0: ?댁?
+                    "tr_type": "1",  # 1: subscribe, 0: unsubscribe
                     "tr_id": tr_id,
                     "tr_key": symbol
                 }
@@ -284,43 +284,43 @@ class MarketDataService:
             
             await websocket.send(json.dumps(subscribe_data))
             
-            # 援щ룆???깅줉
+            # Register subscriber
             if symbol not in self.symbol_subscribers:
                 self.symbol_subscribers[symbol] = []
             
             self.symbol_subscribers[symbol].append(callback)
             
-            logger.info(f"?ㅼ떆媛??멸? 援щ룆 ?깃났: {symbol}")
+            logger.info(f"Subscribed to order book: {symbol}")
             return True
         except Exception as e:
-            logger.error(f"?ㅼ떆媛??멸? 援щ룆 ?ㅻ쪟: {e}")
+            logger.error(f"Failed to subscribe order book: {e}")
             return False
     
     async def unsubscribe_asking_price(self, symbol: str, callback: Optional[Callable] = None) -> bool:
         """
-        二쇱떇 ?ㅼ떆媛??멸? 援щ룆???댁??⑸땲??
+        Unsubscribe from realtime order book feed.
         
         Args:
-            symbol (str): 醫낅ぉ 肄붾뱶
-            callback (Optional[Callable]): ?댁????뱀젙 肄쒕갚 ?⑥닔 (None?대㈃ 紐⑤뱺 肄쒕갚 ?댁?)
+            symbol (str): Instrument code
+            callback (Optional[Callable]): Specific callback to remove (None removes all)
         
         Returns:
-            bool: ?댁? ?깃났 ?щ?
+            bool: True if unsubscribe succeeded
         """
-        # 嫄곕옒 ID ?ㅼ젙
-        tr_id = "H0STASP0"  # 援?궡二쇱떇 ?ㅼ떆媛꾪샇媛 (KRX)
+        # Determine transaction identifier
+        tr_id = "H0STASP0"  # Domestic stock realtime order book (KRX)
         
-        # WebSocket ?곌껐 ?뺤씤
+        # Confirm websocket connection
         websocket = self.ws_connections.get(tr_id)
         if not websocket:
-            logger.error(f"WebSocket ?곌껐 ?놁쓬: {tr_id}")
+            logger.error(f"WebSocket connection missing: {tr_id}")
             return False
         
         try:
-            # 援щ룆 ?댁? ?붿껌 ?곗씠??
+            # Build unsubscribe payload
             unsubscribe_data = {
                 "header": {
-                    "tr_type": "0",  # 1: 援щ룆, 0: ?댁?
+                    "tr_type": "0",  # 1: subscribe, 0: unsubscribe
                     "tr_id": tr_id,
                     "tr_key": symbol
                 }
@@ -328,120 +328,120 @@ class MarketDataService:
             
             await websocket.send(json.dumps(unsubscribe_data))
             
-            # 援щ룆???쒓굅
+            # Update subscriber list
             if symbol in self.symbol_subscribers:
                 if callback is None:
-                    # 紐⑤뱺 肄쒕갚 ?쒓굅
+                    # Clear all callbacks
                     self.symbol_subscribers[symbol] = []
                 else:
-                    # ?뱀젙 肄쒕갚留??쒓굅
+                    # Remove matching callback
                     self.symbol_subscribers[symbol] = [
                         cb for cb in self.symbol_subscribers[symbol] if cb != callback
                     ]
             
-            logger.info(f"?ㅼ떆媛??멸? 援щ룆 ?댁? ?깃났: {symbol}")
+            logger.info(f"Unsubscribed from order book: {symbol}")
             return True
         except Exception as e:
-            logger.error(f"?ㅼ떆媛??멸? 援щ룆 ?댁? ?ㅻ쪟: {e}")
+            logger.error(f"Failed to unsubscribe order book: {e}")
             return False
     
     async def get_stock_price(self, symbol: str) -> Dict[str, Any]:
         """
-        二쇱떇 ?꾩옱媛 ?쒖꽭瑜?議고쉶?⑸땲??
+        Fetch current stock price details.
         
         Args:
-            symbol (str): 醫낅ぉ 肄붾뱶
+            symbol (str): Instrument code
         
         Returns:
-            Dict[str, Any]: 二쇱떇 ?쒖꽭 ?뺣낫
+            Dict[str, Any]: Stock price payload
         """
-        # ?몄쬆 ?뺤씤
+        # Build query parameters
         if not kis_auth.access_token:
             if not kis_auth.auth():
-                logger.error("?몄쬆 ?ㅽ뙣")
-                return {"error": "?몄쬆 ?ㅽ뙣"}
+                logger.error("Authentication failed")
+                return {"error": "Authentication failed"}
         
-        # URL ?ㅼ젙
+        # Configure endpoint URL
         base_url = "https://openapi.koreainvestment.com:9443" if kis_auth.env == "prod" else "https://openapivts.koreainvestment.com:29443"
         url = f"{base_url}/uapi/domestic-stock/v1/quotations/inquire-price"
         
-        # ?ㅻ뜑 ?ㅼ젙
+        # Build query parameters
         headers = kis_auth.get_headers()
-        headers["tr_id"] = "FHKST01010100"  # 二쇱떇 ?꾩옱媛 ?쒖꽭 議고쉶
+        headers["tr_id"] = "FHKST01010100"  # Realtime price inquiry
         
-        # ?뚮씪誘명꽣 ?ㅼ젙
+        # Build query parameters
         params = {
-            "fid_cond_mrkt_div_code": "J",  # 二쇱떇, ETF, ETN
+            "fid_cond_mrkt_div_code": "J",  # , ETF, ETN
             "fid_input_iscd": symbol
         }
         
         try:
-            # API ?붿껌
+            # Call API
             import requests
             response = requests.get(url, headers=headers, params=params)
             response.raise_for_status()
             
             data = response.json()
             
-            # ?묐떟 ?뺤씤
+            # Validate response
             if data.get("rt_cd") == "0":
                 return data.get("output", {})
             else:
-                logger.error(f"API ?ㅻ쪟: {data}")
-                return {"error": data.get("msg_cd", "?????녿뒗 ?ㅻ쪟")}
+                logger.error(f"API error: {data}")
+                return {"error": data.get("msg_cd", "Unknown error")}
         except Exception as e:
-            logger.error(f"API ?붿껌 ?ㅻ쪟: {e}")
+            logger.error(f"API request error: {e}")
             return {"error": str(e)}
     
     async def get_stock_asking_price(self, symbol: str) -> Dict[str, Any]:
         """
-        二쇱떇 ?멸? ?뺣낫瑜?議고쉶?⑸땲??
+        Fetch current order book snapshot.
         
         Args:
-            symbol (str): 醫낅ぉ 肄붾뱶
+            symbol (str): Instrument code
         
         Returns:
-            Dict[str, Any]: 二쇱떇 ?멸? ?뺣낫
+            Dict[str, Any]: Order book payload
         """
-        # ?몄쬆 ?뺤씤
+        # Build query parameters
         if not kis_auth.access_token:
             if not kis_auth.auth():
-                logger.error("?몄쬆 ?ㅽ뙣")
-                return {"error": "?몄쬆 ?ㅽ뙣"}
+                logger.error("Authentication failed")
+                return {"error": "Authentication failed"}
         
-        # URL ?ㅼ젙
+        # Configure endpoint URL
         base_url = "https://openapi.koreainvestment.com:9443" if kis_auth.env == "prod" else "https://openapivts.koreainvestment.com:29443"
         url = f"{base_url}/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn"
         
-        # ?ㅻ뜑 ?ㅼ젙
+        # Build query parameters
         headers = kis_auth.get_headers()
-        headers["tr_id"] = "FHKST01010200"  # 二쇱떇 ?꾩옱媛 ?멸? 議고쉶
+        headers["tr_id"] = "FHKST01010200"  # Realtime order book inquiry
         
-        # ?뚮씪誘명꽣 ?ㅼ젙
+        # Build query parameters
         params = {
-            "fid_cond_mrkt_div_code": "J",  # 二쇱떇, ETF, ETN
+            "fid_cond_mrkt_div_code": "J",  # , ETF, ETN
             "fid_input_iscd": symbol
         }
         
         try:
-            # API ?붿껌
+            # Call API
             import requests
             response = requests.get(url, headers=headers, params=params)
             response.raise_for_status()
             
             data = response.json()
             
-            # ?묐떟 ?뺤씤
+            # Validate response
             if data.get("rt_cd") == "0":
                 return {
-                    "output1": data.get("output1", {}),  # 醫낅ぉ ?뺣낫
-                    "output2": data.get("output2", [])   # ?멸? ?뺣낫
+                    "output1": data.get("output1", {}),  # Instrument info
+                    "output2": data.get("output2", [])   # Depth levels
                 }
             else:
-                logger.error(f"API ?ㅻ쪟: {data}")
-                return {"error": data.get("msg_cd", "?????녿뒗 ?ㅻ쪟")}
+                logger.error(f"API error: {data}")
+                return {"error": data.get("msg_cd", "Unknown error")}
         except Exception as e:
-            logger.error(f"API ?붿껌 ?ㅻ쪟: {e}")
+            logger.error(f"API request error: {e}")
             return {"error": str(e)}
     
 
@@ -514,19 +514,19 @@ class MarketDataService:
 
     async def close_all_connections(self) -> None:
         """
-        紐⑤뱺 WebSocket ?곌껐??醫낅즺?⑸땲??
+        Close all websocket connections.
         """
         for tr_id, websocket in self.ws_connections.items():
             if websocket:
                 try:
                     await websocket.close()
-                    logger.info(f"WebSocket ?곌껐 醫낅즺: {tr_id}")
+                    logger.info(f"WebSocket connection closed: {tr_id}")
                 except Exception as e:
-                    logger.error(f"WebSocket 醫낅즺 ?ㅻ쪟: {e}")
+                    logger.error(f"Error while closing websocket: {e}")
         
         self.ws_connections = {}
         self.symbol_subscribers = {}
 
 
-# ?깃????몄뒪?댁뒪
+# Singleton service instance
 market_data_service = MarketDataService()
